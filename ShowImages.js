@@ -2,10 +2,7 @@
  * @Author Faris Hijazi - https://www.github.com/farishijazi
  * https://github.com/FarisHijazi/SuperGoogle/projects/1
  */
-// TODO: - [ ] add the ability to load images via another loaderImage object
 // TODO: - [ ] set a "proxy" attribute on success, identifying which proxy was used
-// TODO: - [ ] image loads, it broadcasts the onload event to all other images with the same src
-// TODO: - [ ] Have the option of multiple urls for an image, and you'd try to load all of them at the same time, the one that loads first wins. This makes the process faster, instead of waiting for each one to fail
 
 /**
  * @typedef {(Element)} ImgEl
@@ -173,43 +170,83 @@ this._howMany=0,this._unwrap=!1,this._initialized=!1}function o(t,e){if((0|e)!==
 
     /**
      * wait for element to load
-     * @author gilly3 - https://stackoverflow.com/a/33019709/7771202
+     * the loading will happen by using one or more other "fake" loader `Image` objects, and img will only be updated if any loader image loads successfully
+     * @author Faris Hijazi, inspired by: gilly3 - https://stackoverflow.com/a/33019709/7771202
      *
-     * @param {HTMLImageElement|Node|imgEl} img the image you want to load
-     * @param src
-     * @returns {Promise} - resolve(imgEl), reject(event)
+     * @param {HTMLImageElement|Node|imgEl} img - the image you want to load
+     * @param {(string|string[])=} srcs - img.src is used by default. srcs is the new url(s) to load for the img,
+     *          each src in srcs will be loaded in parallel and the first one to load will return.
+     *
+     * @returns {Promise} -
+     *      this: img
+     *          resolve(e)
+     *      this: img
+     *          reject(event)
      */
-    function loadPromise(img, src = '') {
-        if (img.src && img.complete) {
+    function loadPromise(img, srcs = []) {
+        srcs = (srcs.length === 0 ? [img.src] : srcs).filter(x => !!x);
+
+        // check if already succeeded or already failed
+        if (srcs.length === 0 && img.src && img.complete) {
+            console.debug('already loaded (initial check)');
             return (img.naturalWidth > 0) ?
                 Promise.resolve(img) :
                 Promise.reject(new Error('image failed to load'));
         }
 
-        return new Promise(function (resolve, reject) {
-
-            // binding listeners
-            const _loadListener = function (e) {
-                img.removeEventListener('load', _loadListener);
-                resolve(img);
-            };
-            const _errListener = function (e) {
-                img.removeEventListener('error', _errListener);
-                reject(e);
-            };
-            img.addEventListener('load', _loadListener, false);
-            img.addEventListener('error', _errListener, false);
+        /**
+         *
+         * @param {HTMLImageElement} img
+         * @param {string=} src
+         * @returns {Promise}
+         */
+        var createLoaderPromise = function (img, src) {
+            if (!src && img.src && img.complete) {
+                console.debug('already loaded');
+                return (img.naturalWidth > 0) ?
+                    Promise.resolve(img) :
+                    Promise.reject(new Error('image failed to load'));
+            }
 
             var loaderImage = new Image();
-            if (!img.src && src)
-                loaderImage.onload = (e) => {
-                    img.src = src;
-                    resolve(img);
+            const promise = new Promise(function (resolve, reject) {
+                // binding listeners
+                loaderImage.onload = function (e) {
+                    console.log(
+                        'loaded image!' +
+                        '\nthis=', this,
+                        '\nevent=', e
+                    );
+                    e.src = src; // passing the srcs here to be used later
+                    resolve.call(img, e);
                 };
-            loaderImage.onerror = (e) => {
-                reject(new Error('image failed loading ' + img.src));
+                loaderImage.onerror = function (e) {
+                    console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
+                    reject.call(img, e);
+                };
+                loaderImage.src = src;
+            });
+            // defining function abort() (would be nice if we could just reject/cancel the promise... EC7?! WHEN?!)
+            // HACK:
+            promise.cancel = promise.cancel || function() {
+                loaderImage.onerror = null;
+                loaderImage.onload = null;
+                loaderImage.remove();
+                loaderImage = null;
             };
-            loaderImage.src = img.src;
+            return promise;
+        };
+
+        if (!srcs.length) {
+            console.error('loadPromise(): no srcs was passed');
+            return Promise.reject(img);
+        }
+
+        // image didn't already load if we reached this point it
+        const promises = srcs.map((src) => createLoaderPromise(img, src));
+        return Promise.race(promises).then(function(e) {
+            img.src = e.src;
+            promises.forEach(promise => promise.cancel());// cancel all other promises (to save resources)
         });
     }
 
