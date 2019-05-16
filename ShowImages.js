@@ -12,6 +12,9 @@
  * @property {number} handlerIndex
  * @property {HTMLAnchorElement} anchor
  * @property {string} oldSrc
+ * @property {Function} onloadHandler
+ * @property {Function} onerrorHandler
+ * @property {bool} isReady
  */
 
 /**
@@ -266,7 +269,7 @@
          *  load = true:     image loaded successfully
          *  load = loading:    image still loading
          *  load = "error":  image failed to load
-         * @param {ImgEl|Element|HTMLImageElement|Node} imgEl
+         * @param {ImgEl|Element|HTMLElement|HTMLImageElement|Node} imgEl
          * @param src - the new url to be used
          */
         initImageLoading(imgEl, src) {
@@ -276,11 +279,6 @@
 
             ImageManager.enhanceImg(imgEl, src);
 
-            const _isImageOk = (img) => img.complete && img.naturalWidth !== 0;
-
-            // TODO: put these together and make them a property of imgEl, and don't reference using scope variables, use members: imgEl.image etc...
-            var onload;
-            var onerror;
             /**
              * @param img
              * @returns {*|Promise<T | never>}
@@ -288,65 +286,87 @@
             function tryNextHandler(img) {
                 img = img.imgEl || img; //FIXME: Cannot read property 'imgEl' of undefined
 
-                debug && console.warn('tryNextHandler(): index:', img.handlerIndex, 'Image:\n', img.src);
+                debug && console.log('tryNextHandler()[' + img.handlerIndex + '] Image:\n', img.src);
 
-                img.handlerIndex += 1;
-                if (img.handlerIndex < _im.onErrorHandlers.length) {
+                if (img.handlerIndex + 1 < _im.onErrorHandlers.length) {
+                    img.handlerIndex += 1;
                     const nextHandler = _im.onErrorHandlers[img.handlerIndex];
-                    const result = nextHandler.call(img, event, _im);
-                    return result && result.catch ? result.catch(() => tryNextHandler(img)) : result;
+                    return nextHandler.call(img, event, _im).catch(() => tryNextHandler(img));
+                } else {
+                    return Promise.reject(img);
                 }
             }
 
-            onerror = function (event) {
-                // FIXME:   TypeError: Cannot read property 'imgEl' of undefined
-                const img = this.imgEl || this;
+            imgEl.__defineGetter__('isReady', () => imgEl.complete && imgEl.naturalWidth > 1 && imgEl.naturalHeight > 1);
 
-                debug && console.warn('onerror():', img.src, img, event);
-                try {
-                    const result = tryNextHandler(img);
-                    if(result && result.then)
-                        result.then(onload.bind(img));
-                } catch (e) {
-                    console.error(e);
+            /**
+             * @this imgEl
+             * @param err
+             */
+            imgEl.__defineGetter__('onerrorHandler', function () {
+                return function (err) {
+                    const img = this.imgEl || this;
+
+                    debug && console.warn('onerrorHandler():', img.src, img, err);
+                    try {
+                        tryNextHandler(img).then(imgEl.onloadHandler.bind(img));
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    img.setAttribute('handler-index', img.handlerIndex.toString());
                 }
-                img.setAttribute('handler-index', img.handlerIndex.toString());
-            };
-            onload = function (event) {
-                const img = this.imgEl || this;
-                debug && console.log('image loaded :)', img.src);
-                if (_isImageOk(img)) {
-                    img.setAttribute('loaded', 'true');
-                    img.style.display = 'block';
-                    _im.onSuccess(img);
-                } else { // if it didn't load or width==0:
-                    onerror.call(imgEl, event);
-                }
-            };
+            });
+
+            /**
+             * @this imgEl
+             * @param event
+             */
+            imgEl.__defineGetter__('onloadHandler', function () {
+                return function (event) {
+                    const img = this.imgEl || this;
+                    debug && console.log('image loaded :)', img.src);
+                    if (img.isReady) {
+                        img.setAttribute('loaded', 'true');
+                        img.style.display = 'block';
+                        _im.onSuccess(img);
+                    } else { // if it didn't load or width==0:
+                        imgEl.onerrorHandler.call(imgEl, event);
+                    }
+                };
+            });
 
             // setup the image object
-            var image = new Image();
-            image.src = src || imgEl.src || imgEl.anchor.href;
-            // just to reference the imgEl. we don't want the callbacks to be called on the Image object, rather the IMG element
-            image.__defineGetter__('imgEl', () => imgEl);
-            imgEl.image = image;
-            image.onerror = onerror.bind(imgEl);
-            image.onload = onload.bind(imgEl);
-            loadPromise(imgEl)
-                .then(imgEl => onload(imgEl))
-                .catch((e) => onerror.call(imgEl, e));
+            var loaderImage = (function (imgEl) {
+                const _loaderImage = new Image();
+                _loaderImage.src = src || imgEl.src || imgEl.anchor.href;
 
-            // store it (so it'll have to load)
-            if (_im._images.has(image)) {
-                console.warn('Duplicate image object!', image);
-                image = null;
+                // just to reference the imgEl. we don't want the callbacks to be called on the Image object, rather the IMG element
+                _loaderImage.__defineGetter__('imgEl', () => imgEl);
+                _loaderImage.onerror = imgEl.onerrorHandler.bind(imgEl);
+                _loaderImage.onload = imgEl.onloadHandler.bind(imgEl);
+                return _loaderImage;
+            })(imgEl);
+
+            imgEl.image = loaderImage;
+
+            // store it (so it'll have to load and won't get garbage-collected)
+            if (_im._images.has(loaderImage)) {
+                console.warn('Duplicate image object!', loaderImage);
+                loaderImage = null;
                 return;
             }
-            _im._images.add(image);
+
+            _im._images.add(loaderImage);
             imgEl.setAttribute('loaded', 'loading');
+
+            // init loading
+            return loadPromise(imgEl)
+                .then(imgEl.onloadHandler.bind(imgEl))
+                .catch((e) => imgEl.onerrorHandler.call(imgEl, e));
         }
 
         /**
+         * turns an image/img to an imgEl type
          * Prepares the image and initializes the extra fields
          *
          * - Add getters and setters for "oldSrc"
@@ -359,7 +379,6 @@
          * @returns imgEl (the same object)
          */
         static enhanceImg(imgEl, newSrc = '') {
-
             // So here's how it works:
             // 1- image object loads and calls onload
             // 2- it references imgEl and now we start working on imgEl
@@ -406,15 +425,17 @@
          * @param {Object} options
          * @param {Function(img)=} options.imagesFilter
          */
-        constructor(options) {
+        constructor(options = {}) {
             var self = this;
             // TODO: define the options and the default values
             options = extend({
-                imagesFilter: (img, anchor) => !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
-                    // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL) &&
-                    // /\.(jpg|jpeg|tiff|png|gif)($|\?)/i.test(anchor.href) &&
-                    !img.classList.contains('irc_mut') && !(img.closest('div.irc_rismo')) && // TODO: move this to google script @google specific
-                    !/^data:/.test(anchor.href),
+                imagesFilter: function (img, anchor) {
+                    return !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
+                        // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL) &&
+                        // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href) &&
+                        !img.classList.contains('irc_mut') && !img.closest('div.irc_rismo') && // TODO: move this to google script @google specific
+                        !/^data:/.test(anchor.href);
+                },
             }, options);
 
             for (const key of Object.keys(options)) {
