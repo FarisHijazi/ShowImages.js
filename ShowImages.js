@@ -568,56 +568,81 @@
          * replaces the src, `ImageManager.addHandlers(img, img.src);`
          *
          * @param {HTMLElement} node could be an image or any node containing an image
+         * @param mutationObserver
          */
         displayOriginalImage(node, mutationObserver) {
             var self = this;
             if (node.matches('a[href] img[src]')) {
                 /** @type {ImgEl} */
                 const img = node;
-                const result = this.replaceImgSrc(img);
-                if (result) {
+                this.replaceImgSrc(img).then((e) => {
+                    debug && console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
                     if (/\.(gif)($|\?)/i.test(img.anchor.href)) {
-                        console.log('GIF', img.anchor.href);
-                        img.classList.add(self.ClassNames.DISPLAY_ORIGINAL_GIF);
+                        if (!img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL_GIF)) img.classList.add(self.ClassNames.DISPLAY_ORIGINAL_GIF);
                     }
-                }
+                });
             }
             for (const img of node.querySelectorAll('a[href] img[src]')) {
-                const result = this.replaceImgSrc(img);
-                if (result) {
+                this.replaceImgSrc(img).then((e) => {
+                    debug && console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
                     if (/\.(gif)($|\?)/i.test(img.anchor.href)) {
-                        console.log('GIF', img.anchor.href);
-                        img.classList.add(self.ClassNames.DISPLAY_ORIGINAL_GIF);
+                        if (!img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL_GIF)) img.classList.add(self.ClassNames.DISPLAY_ORIGINAL_GIF);
                     }
-                }
+                });
             }
             for (const vidThumb of node.querySelectorAll('a[href] > img')) {
                 ShowImages.replaceThumbWithVid(vidThumb);
             }
         }
-        // TODO: turn this to a promise
         /**
          * This is the main method that takes an image and replaces its src with its anchors href
          * ShowImages.filter is applied here, only images that pass the filter will have `src` replaced
-         * @param {ImgEl} img
-         * @param {Element|HTMLAnchorElement=} anchor - if the anchor isn't supplied, the closest parent anchor is used
-         * @returns {boolean} false when `img` doesn't pass the filter
+         * @param {(ImgEl|HTMLImageElement)} img
+         * @param {(Element|HTMLAnchorElement|string|boolean|null)=null} anchor -
+         *          if the anchor is null (default): the closest parent anchor is used
+         *          if the anchor is a string: it's assumed to be the newSrc
+         *          if the anchor===false or no anchor is available: the image will be dealt with without an anchor,
+         *              set anchor=false to forcefully prevent the use of the parent anchors (rarely used)
+         * @returns {Promise<Event>}
+         *      @ property event.img
          */
-        replaceImgSrc(img, anchor) {
-            if (!anchor) anchor = img.closest('a');
+        replaceImgSrc(img, anchor = null) {
+            var newSrc;
+
+            if (typeof anchor === 'string') {
+                newSrc = String(anchor);
+                anchor = null;
+            }
+            if (!(anchor instanceof Element) && anchor !== false)
+                anchor = img.closest('a');
+
             // image has already been replaced
             // if (img.getAttribute('loaded') === 'true') return false;
 
-            if (!this._imagesFilter(img, anchor)) return false;
+            //TODO: add support for srcset
+            newSrc = newSrc ||
+                img.getAttribute('fullres-src') ||
+                (anchor && !/^data:/.test(anchor.href) ? anchor.href : img.src);
+
+            if (!this._imagesFilter(img, anchor || {}) || this.imageManager._failedSrcs.has(newSrc)) {
+                // debug && console.debug('replaceImgSrc(src=' + img.src + ') did not pass image filter');
+                return Promise.reject({img: img, type: 'filter-error'})
+                    .catch(function (e) {
+                        debug && console.warn('Caught (in promise):', e);
+                        return e;
+                    });
+            }
 
             debug && console.debug('replaceImgSrc()', img);
 
-            var newSrc = img.getAttribute('fullres-src') || anchor.href;
-            this.imageManager.initImageLoading(img, newSrc);
-
             img.classList.add(this.ClassNames.DISPLAY_ORIGINAL);
 
-            return true;
+            return this.imageManager.initImageLoading(img, newSrc)
+                .catch(function (e) {
+                    // debug && console.warn('Caught (in promise):', e)
+                    return e;
+                })
+                ;
         }
 
         /**
