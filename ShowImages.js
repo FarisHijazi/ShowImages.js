@@ -262,6 +262,7 @@
     class ImageManager {
         successfulUrls = [];
         _images = [];
+        _failedSrcs = new Set();
         parent = {};
         onErrorHandlers = [];
         onSuccess = function () {
@@ -358,50 +359,65 @@
          * @param newSrc - the new url to be used
          * @returns {Promise<({img: imgEl})>}
          */
-        initImageLoading(imgEl, src) {
+        initImageLoading(imgEl, newSrc) {
             var _im = this;
-            if (!imgEl || imgEl.getAttribute('loaded') === 'loading' || imgEl.handlerIndex > 0)
-                return;
-
-            ImageManager.enhanceImg(imgEl, src);
-
-            /**
-             * @param img
-             * @returns {*|Promise<T | never>}
-             */
-            function tryNextHandler(img) {
-                img = img.imgEl || img; //FIXME: Cannot read property 'imgEl' of undefined
-
-                debug && console.log('tryNextHandler()[' + img.handlerIndex + '] Image:\n', img.src);
-
-                if (img.handlerIndex + 1 < _im.onErrorHandlers.length) {
-                    img.handlerIndex += 1;
-                    const nextHandler = _im.onErrorHandlers[img.handlerIndex];
-                    return nextHandler.call(img, event, _im).catch(() => tryNextHandler(img));
-                } else {
-                    return Promise.reject(img);
-                }
+            if (!imgEl) throw 'imgEl is null!';
+            if (imgEl.__isEnhanced || imgEl.getAttribute('loaded') === 'loading' || imgEl.handlerIndex > 0) {
+                // console.warn('initImageLoading(imgEl) has been called TWICE!!, MUST FIX', imgEl);
+                return Promise.reject({img: imgEl, type: 'return', reason: 'recall'});
             }
 
-            imgEl.__defineGetter__('isReady', () => imgEl.complete && imgEl.naturalWidth > 1 && imgEl.naturalHeight > 1);
+            ImageManager.enhanceImg(imgEl, newSrc);
+
+            /**
+             * @param imgEl
+             * @returns {Promise<Event>}
+             *      Event.img must exist
+             */
+            function tryNextHandler(imgEl) {
+                // covers 3 cases: imgEl, loaderImage, event
+                var _imgEl = imgEl.img || imgEl;
+
+                debug && console.warn(
+                    'tryNextHandler()[' + _imgEl.handlerIndex + ']' +
+                    '\nImage:', _imgEl.src
+                );
+
+                const currentHandler = _im.onErrorHandlers[_imgEl.handlerIndex];
+
+                if (!currentHandler || _imgEl.handlerIndex >= _im.onErrorHandlers.length) {
+                    return Promise.reject({img: _imgEl, type: 'return', reason: 'handler out of range'});
+                }
+
+                _imgEl.handlerIndex += 1;
+                return currentHandler
+                    .call(_imgEl, event, _im)
+                    .catch((e) => {
+                        if (e.type !== 'error') {
+                            console.log('currentHandler.catch() NOT AN ERROR!');
+                            return e;
+                        }
+
+                        return tryNextHandler(_imgEl);
+                    });
+            }
 
             /**
              * @this imgEl
-             * @param err
+             * @param event
              */
-            imgEl.__defineGetter__('onerrorHandler', function () {
-                return function (err) {
-                    const img = this.imgEl || this;
+            imgEl.onerrorHandler = function (event) {
+                const img = this.img || this;
+                _im._failedSrcs.add(img.src);
 
-                    debug && console.warn('onerrorHandler():', img.src, img, err);
-                    try {
-                        tryNextHandler(img).then(imgEl.onloadHandler.bind(img));
-                    } catch (e) {
-                        console.error(e);
-                    }
-                    img.setAttribute('handler-index', img.handlerIndex.toString());
+                debug && console.warn('onerrorHandler():', img.src, img, event);
+                try {
+                    tryNextHandler(img).then((e) => imgEl.onloadHandler.call(img, e));
+                } catch (e) {
+                    console.error('onerrorHandler() try{}catch{}, caught:\n', e);
                 }
-            });
+                img.setAttribute('handler-index', img.handlerIndex.toString());
+            };
 
             /**
              * @this imgEl
@@ -409,46 +425,58 @@
              */
             imgEl.onloadHandler = function (event) {
                 const img = this.img || this;
-                    const img = this.imgEl || this;
-                    debug && console.log('image loaded :)', img.src);
-                    if (img.isReady) {
-                        img.setAttribute('loaded', 'true');
-                        img.style.display = 'block';
-                        _im.onSuccess(img);
-                    } else { // if it didn't load or width==0:
-                        imgEl.onerrorHandler.call(imgEl, event);
-                    }
-                };
-            });
+                debug && console.log('image loaded :)', img.src, event);
+                if (img.isReady) {
+                    img.setAttribute('loaded', 'true');
+                    img.style.display = 'block';
+                    _im.onSuccess(img);
+                } else { // if it didn't load or width==0:
+                    imgEl.onerrorHandler.call(imgEl, event);
+                }
+            };
 
             // setup the image object
-            var loaderImage = (function (imgEl) {
+            imgEl.__loaderImage = (function makeLoaderImage(imgEl) {
                 const _loaderImage = new Image();
-                _loaderImage.src = src || imgEl.src || imgEl.anchor.href;
 
                 // just to reference the imgEl. we don't want the callbacks to be called on the Image object, rather the IMG element
-                _loaderImage.__defineGetter__('imgEl', () => imgEl);
+                _loaderImage.__defineGetter__('img', () => imgEl);
                 _loaderImage.onerror = imgEl.onerrorHandler.bind(imgEl);
                 _loaderImage.onload = imgEl.onloadHandler.bind(imgEl);
+
+                // EXP: disabling this here cuz we don't need 2 loader images, one is already in loadPromise()
+
+                // _loaderImage.src = newSrc || imgEl.src || imgEl.anchor.href;
                 return _loaderImage;
             })(imgEl);
 
-            imgEl.image = loaderImage;
+            // // store it (so it'll have to load and won't get garbage-collected)
+            // if (_im._images.has(imgEl.__loaderImage)) {
+            //     console.warn('Duplicate image object!', imgEl.__loaderImage);
+            //     imgEl.__loaderImage = null;
+            //     return Promise.reject({img: imgEl, type: 'return', reason: 'duplicate'});
+            // }
+            _im._images.add(imgEl.__loaderImage);
 
-            // store it (so it'll have to load and won't get garbage-collected)
-            if (_im._images.has(loaderImage)) {
-                console.warn('Duplicate image object!', loaderImage);
-                loaderImage = null;
-                return;
-            }
 
-            _im._images.add(loaderImage);
             imgEl.setAttribute('loaded', 'loading');
+
 
             // init loading
             return loadPromise(imgEl)
-                .then(imgEl.onloadHandler.bind(imgEl))
-                .catch((e) => imgEl.onerrorHandler.call(imgEl, e));
+                .then((e) => {
+                    const call = imgEl.onloadHandler.call(imgEl, e);
+                    debug && console.log('onloadHandler.call', '\nimgEl:', imgEl, '\ne:', e, '\nreturn:', call);
+                    return call;
+                })
+                .catch((e) => {
+                    if (e.type !== 'error') {
+                        debug && console.log('promise.catch() NOT AN ERROR!');
+                        return e;
+                    }
+
+                    return imgEl.onerrorHandler.call(imgEl, e);
+                });
         }
 
         /**
@@ -469,21 +497,24 @@
             // 2- it references imgEl and now we start working on imgEl
             // 3- for each onerror, there's an error handler, imgEl.handlerIndex indicates which handler is next
             // 4- until we get to the last handler, and that'd be to mark the image as [loaded="error"]
-            var anchor = imgEl.anchor || imgEl.closest('a');
 
+            imgEl.__defineGetter__('oldSrc', () => this._oldSrc);
             imgEl.__defineSetter__('oldSrc', function (value) {
                 this._oldSrc = value;
-                if(/^data:/.test(value)) value = value.slice(0, 10);
+                if (/^data:/.test(value)) value = value.slice(0, 10);
                 this.setAttribute('oldSrc', value);
             });
-            imgEl.__defineGetter__('oldSrc', () => this._oldSrc);
 
-            imgEl.oldSrc = imgEl.src;
             imgEl.handlerIndex = 0;
-            imgEl.anchor = anchor;
-            imgEl.src = newSrc || imgEl.src;
+            imgEl.anchor = imgEl.anchor || imgEl.closest('a') || {};
+            imgEl.oldSrc = !/^data:/.test(imgEl.src) ? imgEl.src : (imgEl.anchor.href && !/^data:/.test(imgEl.anchor.href) ? imgEl.anchor.href : imgEl.src);
+            if (newSrc) {
+                imgEl.src = newSrc;
+                imgEl.anchor.href = newSrc; //EXPERIMENTAL:
+            }
+            imgEl.__isEnhanced = true;
 
-            return imgEl;
+            imgEl.__defineGetter__('isReady', () => imgEl.complete && imgEl.naturalWidth > 1 && imgEl.naturalHeight > 1);
         }
     }
 
@@ -582,15 +613,15 @@
                 }
 
                 /**
-                     * puts red borders around the mainImage.
-                     * @param node
-                     */
-                    function markNotFound(node) {
-                        node.classList.add(self.ClassNames.FAILED);
-                        node.setAttribute('loaded', 'error');
-                        // language=CSS
-                        setBorderWithColor(node, '#b90004');
-                        self.imageManager.successfulUrls.delete(node.src);
+                 * puts red borders around the mainImage.
+                 * @param node
+                 */
+                function markNotFound(node) {
+                    node.classList.add(self.ClassNames.FAILED);
+                    node.setAttribute('loaded', 'error');
+                    // language=CSS
+                    setBorderWithColor(node, '#b90004');
+                    self.imageManager.successfulUrls.delete(node.src);
                 }
 
                 return [handler1, handler2, handleProxyError];
