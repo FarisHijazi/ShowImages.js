@@ -7,6 +7,7 @@
 /**
  * @typedef {(Element)} ImgEl
  * @property {number} handlerIndex
+ * @property {HTMLImageElement} loaderImage
  * @property {HTMLAnchorElement} anchor
  * @property {string} oldSrc
  * @property {Function} onloadHandler
@@ -65,6 +66,10 @@
             static get color() {
                 return '#00000';
             }
+            static get name() {
+                return Object.keys(PProxy).filter(p => PProxy[p] === this)[0];
+            }
+
             static test(url) {
             }
             static proxy(url) {
@@ -115,12 +120,17 @@
                 return '#0074B3';
             }
             static test(url) {
-                return /https:\/\/steemitimages\.com\/0x0\//.test(url);
+                return /https:\/\/steemitimages\.com\/(p|0x0)\//.test(url);
             }
             static proxy(url) {
-                return /\.(jpg|jpeg|tiff|png|gif)($|\?)/i.test(url) ? ('https://steemitimages.com/0x0/' + url.trim()) : url;
+                return /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(url) ? ('https://steemitimages.com/0x0/' + url.trim()) : url;
             }
             static reverse(url) {
+                if (!SteemitImages.test(url)) {
+                    return url;
+                }
+                console.warn('SteemitImages.reverse() is not fully supported, it\'ll only work sometimes');
+                return '';
             }
         }
 
@@ -135,6 +145,7 @@
     let TIMEOUT = 6000;
 
 
+    //TODO: add timeout option
     /**
      * wait for element to load
      * the loading will happen by using one or more other "fake" loader `Image` objects, and img will only be updated if any loader image loads successfully
@@ -248,14 +259,20 @@
                             'img.src': img.src,
                             'img.oldSrc': img.oldSrc
                         });
-                        // language=CSS
-                        setBorderWithColor(img, '#5d00b3');
-                        img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL_GIF);
+                        // // language=CSS
+                        // setBorderWithColor(img, '#5d00b3');
+                        // img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL_GIF);
+                    }
+
+                    var proxyKey = img.getAttribute('proxy');
+                    if (proxyKey && PProxy[proxyKey]) {
+                        setBorderWithColor(img, PProxy[proxyKey].color);
                     } else {
                         // language=CSS
                         setBorderWithColor(img, '#04b300');
-                        img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL);
                     }
+
+                    img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL);
                 },
                 onErrorHandlers: [],
             }, opts);
@@ -274,9 +291,9 @@
          * @this {ImageManager} the image manager
          * @param {(ImgEl|HTMLImageElement)} imgEl - the image that has failed loading
          * @param {Event} event
-         * Must contain:
-         *  {number} imgEl.handlerIndex
-         *  {HTMLAnchorElement} imgEl.anchor
+         *  Must contain:
+         *      {number} imgEl.handlerIndex
+         *      {HTMLAnchorElement} imgEl.anchor
          */
         fireNextErrorHandler(imgEl, event) {
             debug && console.debug('fireNextErrorHandler', imgEl);
@@ -310,8 +327,9 @@
          *  load = true:     image loaded successfully
          *  load = loading:    image still loading
          *  load = "error":  image failed to load
-         * @param {ImgEl|Element|HTMLElement|HTMLImageElement|Node} imgEl
-         * @param src - the new url to be used
+         * @param {(ImgEl|Element|HTMLImageElement)} imgEl
+         * @param newSrc - the new url to be used
+         * @returns {Promise<({img: imgEl})>}
          */
         initImageLoading(imgEl, src) {
             var _im = this;
@@ -362,8 +380,8 @@
              * @this imgEl
              * @param event
              */
-            imgEl.__defineGetter__('onloadHandler', function () {
-                return function (event) {
+            imgEl.onloadHandler = function (event) {
+                const img = this.img || this;
                     const img = this.imgEl || this;
                     debug && console.log('image loaded :)', img.src);
                     if (img.isReady) {
@@ -411,13 +429,12 @@
          * Prepares the image and initializes the extra fields
          *
          * - Add getters and setters for "oldSrc"
-         * - set handlerIndex=0
+         * - set handlerIndex = 0
          * - img.anchor
          *
          * @param {HTMLImageElement|ImgEl} imgEl
          * @param {string=} newSrc - optional target src to set for the image
          *  (oldSrc will be the current src, and this will be the new)
-         * @returns imgEl (the same object)
          */
         static enhanceImg(imgEl, newSrc = '') {
             // So here's how it works:
@@ -453,13 +470,18 @@
      */
     class ShowImages {
         imageManager = new ImageManager();
-        _imagesFilter = function () {
+        /**
+         * @param {(HTMLImageElement|ImgEl)} img
+         * @param {(HTMLAnchorElement|null)} anchor
+         * @private
+         */
+        _imagesFilter = function (img, anchor) {
         };
         ClassNames = {
-            DISPLAY_ORIGINAL: 'display-original-' + 'mainThumbnail',
-            DISPLAY_ORIGINAL_GIF: 'display-original-' + '-gif',
-            FAILED: 'display-original-' + '-failed',
-            FAILED_DDG: 'display-original-' + '-ddg-failed',
+            DISPLAY_ORIGINAL: 'show' + '-mainThumbnail',
+            DISPLAY_ORIGINAL_GIF: 'show' + '-gif',
+            FAILED: 'show' + '-failed',
+            FAILED_PROXY: 'show' + '-failed-proxy',
         };
 
         /**
@@ -471,70 +493,68 @@
             // TODO: define the options and the default values
             options = extend({
                 imagesFilter: function (img, anchor) {
-                    return !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
+                    return (
+                        !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
                         // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL) &&
                         // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href) &&
                         !img.classList.contains('irc_mut') && !img.closest('div.irc_rismo') && // TODO: move this to google script @google specific
-                        !/^data:/.test(anchor.href);
+                        !/^data:/.test(anchor.href)
+                    );
                 },
             }, options);
 
             for (const key of Object.keys(options)) {
-                self[key] = options[key];
+                if (options[key])
+                    self[key] = options[key];
             }
             this._imagesFilter = options.imagesFilter;
 
 
             //TODO: do dis
-            self.imageManager = new ImageManager({
-                parent: self,
-                /**
-                 * note: onError handlers must all returns a Promise of the image loading
-                 * @type {onErrorHandler[]}
-                 */
-                onErrorHandlers: (function getDefaultHandlers() {
-                    function handler1(event, imageManager) {
-                        const img = this;
-                        img.src = img.oldSrc || img.src;
+            const defaultOnErrorHandlers = (function getDefaultHandlers() {
+                function handler1(event = {}) {
+                    const img = this;
+                    event.img = img;
+                    return __useProxy(img, PProxy.SteemitImages);
+                }
+                function handler2(event = {}) {
+                    const img = this;
+                    event.img = img;
+                    return __useProxy(img, PProxy.DDG);
+                }
+                function handleProxyError(event = {}) {
+                    const img = this;
+                    if (img.oldSrc) img.src = img.oldSrc; // go back to old src
+                    markNotFound(img);
+                    img.classList.add(self.ClassNames.FAILED_PROXY);
 
-                        useProxy(img, PProxy.SteemitImages.proxy);
+                    event.img = img;
+                    return Promise.reject(event);
+                }
 
-                        return loadPromise(img);
-                    }
-                    function handler2(event, imageManager) {
-                        const img = this;
-                        img.src = img.oldSrc || img.src;
-                        useProxy(img, PProxy.DDG.proxy);
-                        return loadPromise(img);
-                    }
-                    function handleProxyError(event) {
-                        const img = this;
-                        img.src = img.oldSrc || img.src; // return the src back to normal
-                        markNotFound(img);
-                        img.classList.add(self.ClassNames.FAILED_DDG);
+                function __useProxy(imgEl, proxy) {
+                    if (imgEl.oldSrc) imgEl.src = imgEl.oldSrc; // go back to old src
+                    const anchor = imgEl.anchor ? imgEl.anchor : imgEl.closest('a');
+                    const href = anchor ? anchor.href : imgEl.src;
+                    const proxyUrl = proxy.proxy(href);
 
-                        return Promise.reject();
-                    }
+                    debug && console.log('useProxy(', href, ')=', proxyUrl);
 
-                    function useProxy(imgEl, proxy) {
-                        const anchor = imgEl.anchor ? imgEl.anchor : imgEl.closest('a');
-                        var href = anchor ? anchor.href : imgEl.src;
-                        const proxyUrl = proxy(href); //occasional ERROR: Cannot read property 'href' of null
+                    imgEl.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
 
-                        debug && console.log('useProxy(', href, ')=', proxyUrl);
-                        imgEl.classList.remove(self.ClassNames.FAILED);
 
-                        anchor.href = proxyUrl;
+                    //FIXME: remove these lines, it shouldn't need to be there
+                    anchor.href = proxyUrl;
+                    // imgEl.src = proxyUrl;
 
-                        self.replaceImgSrc(imgEl);
-                        imgEl.src = proxyUrl;
-
-                        //Make borders ORANGE
-                        // language=CSS
+                    return loadPromise(imgEl, proxyUrl).then(e => {
                         setBorderWithColor(imgEl, proxy.color);
-                    }
+                        imgEl.setAttribute('proxy', proxy.name);
+                    });
+                    // return self.replaceImgSrc(imgEl, proxyUrl);
+                }
 
-                    /**
+                /**
                      * puts red borders around the mainImage.
                      * @param node
                      */
@@ -544,10 +564,18 @@
                         // language=CSS
                         setBorderWithColor(node, '#b90004');
                         self.imageManager.successfulUrls.delete(node.src);
-                    }
+                }
 
-                    return [handler1, handler2, handleProxyError];
-                })(),
+                return [handler1, handler2, handleProxyError];
+            })();
+
+            self.imageManager = new ImageManager({
+                parent: self,
+                /**
+                 * note: onError handlers must all returns a Promise of the image loading
+                 * @type {onErrorHandler[]}
+                 */
+                onErrorHandlers: defaultOnErrorHandlers,
             });
         }
 
@@ -653,7 +681,7 @@
                 images = document.images;
             }
             observeDocument(this.displayOriginalImage.bind(this), images, filter);
-            [].map.call(qa('iframe'), iframe => iframe.querySelectorAll('a[href] img[src]')
+            [].map.call(document.querySelectorAll('iframe'), iframe => iframe.querySelectorAll('a[href] img[src]')
                 .forEach(this.replaceImgSrc.bind(this)));
         }
     }
@@ -666,13 +694,11 @@
      * @param {({})} observeOptions
      * @param {Element|Node} baseNode
      * @param {Function(mutation, me) } callback
-     * @param {Function} filter
+     * @param {Function} filter - function(mutation): boolean
      */
-
-
-    function observeDocument(callback, observedNodes = document.documentElement, filter = (target) => true) {
-        const mutationObserver = new MutationObserver(function mutationCallback(mutationsList) {
-            mutationsList.forEach(mutation => {
+    function observeDocument(callback, observedNodes = [document.documentElement], filter = (mutation) => true) {
+        const mutationObserver = new MutationObserver(function (mutations) {
+            mutations.forEach(mutation => {
                 if (filter(mutation.target)) {
                     callback(mutation.target, mutationObserver);
                 } else {
@@ -688,21 +714,11 @@
                 subtree: true,
                 attributes: true,
                 characterData: false,
-                // attributeFilter: ['src', 'href', 'srcset', 'data-src', 'datasrc']
+                // attributeOldValue: true,
+                attributeFilter: ['src', 'href', 'srcset', 'data-src', 'datasrc']
             });
         }
         return mutationObserver;
-    }
-
-    /** @param selector
-     * @return {NodeListOf<HTMLElement>}*/
-    function qa(selector) {
-        return document.querySelectorAll(selector);
-    }
-    /** @param selector
-     * @return {HTMLElement} */
-    function q(selector) {
-        return document.querySelector(selector);
     }
 
     function setBorderWithColor(el, color = '{color: #5d00b3;}') {
