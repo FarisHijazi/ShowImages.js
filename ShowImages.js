@@ -155,51 +155,69 @@
      * @param {(string|string[])=} srcs - img.src is used by default. srcs is the new url(s) to load for the img,
      *          each src in srcs will be loaded in parallel and the first one to load will return.
      *
-     * @returns {Promise} -
-     *      this: img
-     *          resolve(e)
-     *      this: img
-     *          reject(event)
+     * @returns {Promise<Event>}
+     *          event will always contain event.img
+     *          (although an event may not be passed, an object containing {img: img} will be passed)
+     *
+     * @param {Object=} opts
+     * @param {number=-1} opts.timeout - timeout in milliseconds. if timeout<=0: there will be no timeout
+     * @param {boolean=true} opts.setSrc - set the image src attribute up on success?
      */
-    function loadPromise(img, srcs = []) {
-        srcs = (srcs.length === 0 ? [img.src] : srcs).filter(x => !!x);
+    function loadPromise(img, srcs = [], opts = {timeout: -1, setSrc: true}) {
+        srcs = (typeof srcs === 'string' ? [srcs] :
+                (typeof srcs[Symbol.iterator] === 'function' && srcs.length ? srcs : [img.src])
+        ).filter(x => !!x);
 
         // check if already succeeded or already failed
         if (srcs.length === 0 && img.src && img.complete) {
             console.debug('already loaded (initial check)');
             return (img.naturalWidth > 0) ?
-                Promise.resolve(img) :
-                Promise.reject(img);
+                Promise.resolve({img: img}) :
+                Promise.reject({img: img, type: 'error', reason: 'noload'});
         }
+
+        img.__loaderImages = [];
 
         /**
          *
          * @param {HTMLImageElement} img
          * @param {string=} src
-         * @returns {Promise}
+         * @returns {Promise<Event>} Event will contain event.src and event.img
          */
         var createLoaderPromise = function (img, src) {
             if (!src && img.src && img.complete) {
                 console.debug('already loaded');
                 return (img.naturalWidth > 0) ?
-                    Promise.resolve(img) :
-                    Promise.reject(img);
+                    Promise.resolve({img: img}) :
+                    Promise.reject({img: img, type: 'error', reason: 'noload'});
             }
 
             var loaderImage = new Image();
+
+            img.__loaderImages.push(loaderImage);
+
             const promise = new Promise(function (resolve, reject) {
+                if (opts.timeout > 0) setTimeout(function () {
+                    reject({img: img, type: 'error', reason: 'timeout'});
+                }, opts.timeout);
                 // binding listeners
                 loaderImage.onload = function (e) {
-                    console.log(
+                    debug && console.log(
                         'loaded image!' +
                         '\nthis=', this,
                         '\nevent=', e
                     );
                     e.src = src; // passing the srcs here to be used later
+
+                    // EXP: saving useless references
+                    e.img = img;
+                    e.promise = promise;
+                    img.__loaderImage = loaderImage;
+
                     resolve(e);
                 };
                 loaderImage.onerror = function (e) {
-                    // console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
+                    debug && console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
                     reject(e);
                 };
                 loaderImage.src = src;
@@ -219,18 +237,27 @@
 
         if (!srcs.length) {
             console.error('loadPromise(): no srcs was passed');
-            return Promise.reject(img);
+            return Promise.reject({img: img, reason: 'no-srcs'});
         }
 
         // image didn't already load if we reached this point it
         const promises = srcs.map((src) => createLoaderPromise(img, src));
+
         return Promise.race(promises).then(function (e) {
-            img.src = e.src;
-            promises.forEach(promise => promise.cancel());// cancel all other promises (to save resources)
+            e.img = e.img || img;
+
+            if (opts.setSrc) {
+                e.img.src = e.src;
+            }
+            promises.forEach(function (promise) {
+                if (promise !== e.promise)
+                    return promise.cancel();
+            });// cancel all other promises (to save resources)
             return e;
         });
     }
 
+    unsafeWindow.loadPromise = loadPromise;
 
     class ImageManager {
         successfulUrls = [];
