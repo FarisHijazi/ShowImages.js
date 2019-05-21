@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image load tester</title>
+    <style>
+        a {
+            display: contents;
+        }
+
+        img {
+            width: 300px;
+            display: block;
+        }
+    </style>
+    <script src="ShowImages.js"></script>
+    <script type="application/javascript">
+        window.addEventListener('load', function () {
+            console.log('script running: page tester');
+            const urls = [
+                'https://i.redd.it/97hs9cujojg11.jpg',
+                'https://img2.gelbooru.com//images/4d/58/4d58cb3719619fece1448f6c60679cea.png',
+                'https://i.gifer.com/fetch/w300-preview/a2/a2dec0401851f6384823bd4cf80944f9.gif',
+                'https://ipv4.google.com/search?biw=1264&bih=1239&tbm=isch&q=crawl+pixel+art&chips=q:crawl+pixel+art,g_1:low+resolution&usg=AI4_-kQUxySQS127LpFhIxCuHab_fqcLfQ&sa=X&ved=0ahUKEwjRrO3ep5jiAhWuDmMBHTntC2YQ4lYILSgG'
+            ];
+
+            const container = document.querySelector('#container');
+            const showImages = new ShowImages({});
+
+            for (const url of urls) {
+                const img = document.createElement('img');
+                img.className = 'image';
+                img.src = 'https://www.something.jpg';
+
+                const anchor = document.createElement('a');
+                anchor.href = url;
+                anchor.appendChild(img);
+
+                const div = document.createElement('div');
+                div.appendChild(anchor);
+
+                const btn = document.createElement('button');
+                btn.innerText = 'show image';
+                btn.onclick = function () {
+                    showImages.replaceImgSrc(img);
+                };
+                div.appendChild(btn);
+
+
+                const htmlDiv = document.createElement('div');
+                htmlDiv.className = 'html';
+                img.htmlDiv = htmlDiv;
+                div.appendChild(htmlDiv);
+
+                container.appendChild(div);
+            }
+
+
+            const interestingAttributes = ['src', 'href', 'srcset', 'data-src', 'datasrc', 'oldSrc', 'loaded', 'proxy'];
+
+            // this will write the attributes whenever they change
+            var observe;
+            const moInit = function (mutations, me) {
+                mo.disconnect();
+                document.querySelectorAll('img.image').forEach(img => {
+                    var o = {};
+                    img.getAttributeNames()
+                        .filter(attrName => new Set(interestingAttributes).has(attrName))
+                        .forEach(attrN => o[attrN] = img.getAttribute(attrN));
+
+                    const anchor = img.closest('a');
+                    anchor.getAttributeNames()
+                        .filter(attrName => new Set(interestingAttributes).has(attrName))
+                        .forEach(attrN => o['anchor-' + attrN] = anchor.getAttribute(attrN));
+
+                    img.htmlDiv.innerText = JSON.stringify(o, null, '\t');
+                });
+
+                observe();
+            };
+            var mo = new MutationObserver(moInit);
+            observe = function () {
+                mo.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    // characterData: true,
+                    attributeFilter: interestingAttributes
+                });
+            };
+            observe();
+            moInit();
+        });
+
+    </script>
+</head>
+<body>
+<div id="container"></div>
+<button id="btn-showImages" type="button" onclick="console.log('showImages'); new ShowImages({}).displayImages();">
+    show images
+</button>
+</body>
+</html>
