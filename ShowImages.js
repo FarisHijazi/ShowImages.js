@@ -158,7 +158,7 @@
             console.debug('already loaded (initial check)');
             return (img.naturalWidth > 0) ?
                 Promise.resolve(img) :
-                Promise.reject(new Error('image failed to load'));
+                Promise.reject(img);
         }
 
         /**
@@ -172,7 +172,7 @@
                 console.debug('already loaded');
                 return (img.naturalWidth > 0) ?
                     Promise.resolve(img) :
-                    Promise.reject(new Error('image failed to load'));
+                    Promise.reject(img);
             }
 
             var loaderImage = new Image();
@@ -185,17 +185,19 @@
                         '\nevent=', e
                     );
                     e.src = src; // passing the srcs here to be used later
-                    resolve.call(img, e);
+                    resolve(e);
                 };
                 loaderImage.onerror = function (e) {
-                    console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
-                    reject.call(img, e);
+                    // console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
+                    reject(e);
                 };
                 loaderImage.src = src;
             });
-            // defining function abort() (would be nice if we could just reject/cancel the promise... EC7?! WHEN?!)
+
+            // defining function cancel() (would be nice if we could just reject/cancel the promise... EC7?! WHEN?!)
+            // P.S. found a library (bluebird) that has cancellable promises
             // HACK:
-            promise.cancel = promise.cancel || function() {
+            promise.cancel = promise.cancel || function () {
                 loaderImage.onerror = null;
                 loaderImage.onload = null;
                 loaderImage.remove();
@@ -211,9 +213,10 @@
 
         // image didn't already load if we reached this point it
         const promises = srcs.map((src) => createLoaderPromise(img, src));
-        return Promise.race(promises).then(function(e) {
+        return Promise.race(promises).then(function (e) {
             img.src = e.src;
             promises.forEach(promise => promise.cancel());// cancel all other promises (to save resources)
+            return e;
         });
     }
 
