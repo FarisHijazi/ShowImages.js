@@ -287,9 +287,6 @@
                             'img.src': img.src,
                             'img.oldSrc': img.oldSrc
                         });
-                        // // language=CSS
-                        // setBorderWithColor(img, '#5d00b3');
-                        // img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL_GIF);
                     }
 
                     var proxyKey = img.getAttribute('proxy');
@@ -314,43 +311,6 @@
 
 
         /**
-         * Fires the next error handler depending on imgEl.handlerIndex and increments it.
-         * Also binds to the next handler
-         * @this {ImageManager} the image manager
-         * @param {(ImgEl|HTMLImageElement)} imgEl - the image that has failed loading
-         * @param {Event} event
-         *  Must contain:
-         *      {number} imgEl.handlerIndex
-         *      {HTMLAnchorElement} imgEl.anchor
-         */
-        fireNextErrorHandler(imgEl, event) {
-            debug && console.debug('fireNextErrorHandler', imgEl);
-            // if(imgEl.getAttribute('loaded') === 'error') return;
-            if (imgEl.handlerIndex < this.onErrorHandlers.length) {
-                // call current handler
-                if (imgEl.handlerIndex < this.onErrorHandlers.length && typeof this.onErrorHandlers[imgEl.handlerIndex] === 'function') {
-                    debug && console.log('execute handler:', this.onErrorHandlers[imgEl.handlerIndex]);
-                    this.onErrorHandlers[imgEl.handlerIndex].call(imgEl, event, this);
-                }
-                // if not at the last handler, bind the next handler and increment the index
-                if (imgEl.handlerIndex !== this.onErrorHandlers.length - 1) {
-                    // remove last handler
-                    // bind next handler
-                    imgEl.handlerIndex++;
-                    var nextHandler = this.onErrorHandlers[imgEl.handlerIndex];
-                    setTimeout(function () {
-                        // console.warn('image timed out while loading, TIMEOUT = ', TIMEOUT, imgEl);
-                        // _im.fireNextErrorHandler.call(imgEl, event, _im);
-                    }, TIMEOUT);
-                }
-            } else {
-                imgEl.setAttribute('loaded', 'error');
-            }
-        }
-
-        /**
-         * TODO: turn this to a promise type function (returns a promise)
-         *
          * adds an attribute "load" indicating the load status
          *  load = true:     image loaded successfully
          *  load = loading:    image still loading
@@ -436,26 +396,7 @@
             };
 
             // setup the image object
-            imgEl.__loaderImage = (function makeLoaderImage(imgEl) {
-                const _loaderImage = new Image();
-
-                // just to reference the imgEl. we don't want the callbacks to be called on the Image object, rather the IMG element
-                _loaderImage.__defineGetter__('img', () => imgEl);
-                _loaderImage.onerror = imgEl.onerrorHandler.bind(imgEl);
-                _loaderImage.onload = imgEl.onloadHandler.bind(imgEl);
-
-                // EXP: disabling this here cuz we don't need 2 loader images, one is already in loadPromise()
-
-                // _loaderImage.src = newSrc || imgEl.src || imgEl.anchor.href;
-                return _loaderImage;
-            })(imgEl);
-
-            // // store it (so it'll have to load and won't get garbage-collected)
-            // if (_im._images.has(imgEl.__loaderImage)) {
-            //     console.warn('Duplicate image object!', imgEl.__loaderImage);
-            //     imgEl.__loaderImage = null;
-            //     return Promise.reject({img: imgEl, type: 'return', reason: 'duplicate'});
-            // }
+            imgEl.__loaderImage = {};
             _im._images.add(imgEl.__loaderImage);
 
 
