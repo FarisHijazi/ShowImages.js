@@ -66,8 +66,9 @@
             static get color() {
                 return '#00000';
             }
+            // only to be used by children
             static get name() {
-                return Object.keys(PProxy).filter(p => PProxy[p] === this)[0];
+                return constructor.name;
             }
 
             static test(url) {
@@ -101,6 +102,33 @@
             }
         }
 
+        /**Returns a Pocket proxy url*/
+        class Pocket extends ProxyInterface {
+            static BASE_URL = 'https://d3du9nefdtilsa.cloudfront.net/unsafe/fit-in/x/smart/filters%3Ano_upscale()/';
+            static get color() {
+                return '#e082df';
+            }
+            static test(url) {
+                return /(^https:\/\/pocket-image-cache\.com\/direct\?url=)|(cloudfront\.net\/unsafe\/fit-in\/x\/smart\/filters%3Ano_upscale\(\)\/)/.test(url);
+            }
+            static proxy(url) {
+                return Pocket.test(url) || /^(javascript)/i.test(url) ? url : 'https://pocket-image-cache.com/direct?url=' + url;
+            }
+            static reverse(url) {
+                if (!Pocket.test(url)) {
+                    return url;
+                }
+
+                if (url.indexOf(Pocket.BASE_URL) === 0) {
+                    return url.substring(Pocket.BASE_URL.length, -1);
+                }
+                if (url.indexOf('https://pocket-image-cache.com/direct') === 0) {
+                    return new URL(url).searchParams.get('url');
+                }
+                return url;
+            }
+        }
+
         class FileStack extends ProxyInterface {
             static get color() {
                 return '#acb300';
@@ -130,22 +158,46 @@
                     return url;
                 }
                 console.warn('SteemitImages.reverse() is not fully supported, it\'ll only work sometimes');
-                return '';
+                return url.replace('https://steemitimages.com/0x0/', '');
             }
         }
 
-        return {
-            FileStack: FileStack,
-            SteemitImages: SteemitImages,
-            DDG: DDG,
+        //
+
+        var PProxy = {};
+        PProxy.proxies = [
+            FileStack,
+            SteemitImages,
+            DDG,
+            Pocket,
+        ];
+        PProxy.__defineGetter__('names', () => PProxy.proxies.map(p => p.name));
+        /**
+         * get a proxified url from each proxy
+         * @param url
+         * @returns {*}
+         */
+        PProxy.proxyList = function (url) {
+            return PProxy.proxies.map(proxy => proxy.proxy(url));
         };
+        PProxy.proxyAll = function (url) {
+            var o = {};
+            o.proxies.forEach(proxy => o[proxy.name] = proxy.proxy(url));
+            return o;
+        };
+
+        for(const p of PProxy.proxies) {
+            PProxy[p.name] = p;
+        }
+
+        return PProxy;
     })();
 
     /** * @type {number} TIMEOUT - trigger the `onerror` if the image takes too long to load */
     let TIMEOUT = 6000;
 
 
-    //TODO: add timeout option
+    //TODO: add option for parallel or serial loading
     /**
      * wait for element to load
      * the loading will happen by using one or more other "fake" loader `Image` objects, and img will only be updated if any loader image loads successfully
@@ -509,17 +561,22 @@
             this._imagesFilter = options.imagesFilter;
 
 
-            //TODO: do dis
+            //TODO: allow for just passing fallback URLs as url handlers, and then they'll turn into `loadPromise(img, fallbackUrl)` functions
             const defaultOnErrorHandlers = (function getDefaultHandlers() {
                 function handler1(event = {}) {
                     const img = this;
                     event.img = img;
-                    return __useProxy(img, PProxy.SteemitImages);
+                    return __useProxy(img, PProxy.DDG);
                 }
                 function handler2(event = {}) {
                     const img = this;
                     event.img = img;
-                    return __useProxy(img, PProxy.DDG);
+                    return __useProxy(img, PProxy.SteemitImages);
+                }
+                function handler3(event = {}) {
+                    const img = this;
+                    event.img = img;
+                    return __useProxy(img, PProxy.Pocket);
                 }
                 function handleProxyError(event = {}) {
                     const img = this;
