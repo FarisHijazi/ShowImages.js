@@ -309,12 +309,12 @@
         });
     }
 
-    unsafeWindow.loadPromise = loadPromise;
-
     class ImageManager {
-        successfulUrls = [];
         _images = [];
         _failedSrcs = new Set();
+        _loadTimeout = 15000;
+        _loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
+        successfulUrls = [];
         parent = {};
         onErrorHandlers = [];
         onSuccess = function () {
@@ -323,6 +323,8 @@
         /**
          * @param {Object=} opts
          * @param {ShowImages=} opts.parent - usually the ShowImage instance
+         * @param {number=15000} opts.loadTimeout - timeout in ms for waiting for images to load
+         * @param {string='serial'|'parallel'} opts.loadMode - 'serial' or 'parallel', can also use 's' or 'p'
          * @param {Function=} opts.onSuccess
          * @param {Function[]=} opts.onErrorHandlers - will be passed the img element
          */
@@ -352,13 +354,17 @@
                     img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL);
                 },
                 onErrorHandlers: [],
+                successfulUrls: new Set(),
             }, opts);
 
             self.successfulUrls = new Set();
-            self._images = new Set();
             self.parent = opts.parent;
             self.onErrorHandlers = opts.onErrorHandlers || [];
             self.onSuccess = opts.onSuccess;
+
+            self._images = new Set();
+            self._loadTimeout = opts.loadTimeout;
+            self._loadMode = (opts.loadMode || 'p').toLowerCase();
         }
 
 
@@ -456,7 +462,8 @@
 
 
             // init loading
-            return loadPromise(imgEl)
+            var srcs = _im._loadMode === 's' ? [] : PProxy.proxyList(imgEl.src);
+            return loadPromise(imgEl, srcs, {setSrc: true, timeout: _im._loadTimeout, mode: _im._loadMode})
                 .then((e) => {
                     const call = imgEl.onloadHandler.call(imgEl, e);
                     debug && console.log('onloadHandler.call', '\nimgEl:', imgEl, '\ne:', e, '\nreturn:', call);
@@ -697,7 +704,7 @@
                 newSrc = String(anchor);
                 anchor = null;
             }
-            if (!(anchor instanceof Element) && anchor !== false)
+            if (!((anchor instanceof Element) || anchor === false))
                 anchor = img.closest('a');
 
             // image has already been replaced
