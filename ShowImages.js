@@ -545,21 +545,16 @@
             var self = this;
             // TODO: define the options and the default values
             options = extend({
-                imagesFilter: function (img, anchor) {
-                    return (
-                        !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
-                        // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL) &&
-                        // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href) &&
-                        !img.classList.contains('irc_mut') && !img.closest('div.irc_rismo') && // TODO: move this to google script @google specific
-                        !/^data:/.test(anchor.href)
-                    );
-                },
+                imagesFilter: (img, anchor) => (
+                    !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
+                    // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL) &&
+                    // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href) &&
+                    !img.classList.contains('irc_mut') && !img.closest('div.irc_rismo') && // TODO: move this to google script @google specific
+                    !/^data:/.test(anchor.href)
+                ),
             }, options);
+            extend(self, options);
 
-            for (const key of Object.keys(options)) {
-                if (options[key])
-                    self[key] = options[key];
-            }
             this._imagesFilter = options.imagesFilter;
 
 
@@ -632,14 +627,30 @@
                 return [handler1, handler2, handleProxyError];
             })();
 
-            self.imageManager = new ImageManager({
+            const imOpts = extend({
                 parent: self,
-                /**
-                 * note: onError handlers must all returns a Promise of the image loading
-                 * @type {onErrorHandler[]}
-                 */
                 onErrorHandlers: defaultOnErrorHandlers,
+            }, options);
+
+            // convert urls passed to the errorHandlers to generic fallbackUrl handlers
+            imOpts.onErrorHandlers = imOpts.onErrorHandlers.map(h => typeof (h) !== 'string' ? h : function (e = {}) {
+                var fallbackUrl = h;
+                var img = this;
+
+                if (img.oldSrc) img.src = img.oldSrc; // go back to old src
+                const anchor = img.anchor ? img.anchor : img.closest('a');
+
+                img.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
+
+                //FIXME: remove these lines, it shouldn't need to be there
+
+                anchor.href = fallbackUrl;
+                // img.src = fallbackUrl;
+
+                return loadPromise(img, fallbackUrl);
             });
+
+            self.imageManager = new ImageManager(imOpts);
         }
 
         static replaceThumbWithVid(vidThumb) {
