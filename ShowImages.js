@@ -186,7 +186,7 @@
             return o;
         };
 
-        for(const p of PProxy.proxies) {
+        for (const p of PProxy.proxies) {
             PProxy[p.name] = p;
         }
 
@@ -310,10 +310,10 @@
     }
 
     class ImageManager {
-        images = new Set();
-        failedSrcs = new Set();
         loadTimeout = 15000;
         loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
+        images = new Set();
+        failedSrcs = new Set();
         successfulUrls = new Set();
         parent = {};
         onErrorHandlers = [];
@@ -354,12 +354,12 @@
                     img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL);
                 },
                 onErrorHandlers: [],
+                laodTimeout: 15000,
+                loadMode: 'p',
             }, opts);
 
-
-            self.images = new Set();
-            self.loadTimeout = opts.loadTimeout;
-            self.loadMode = (opts.loadMode || 'p').toLowerCase();
+            extend(self, opts);
+            self.loadMode = (self.loadMode || 'p')[0].toLowerCase();
         }
 
 
@@ -564,6 +564,11 @@
 
 
             //TODO: allow for just passing fallback URLs as url handlers, and then they'll turn into `loadPromise(img, fallbackUrl)` functions
+            /**
+             * note: onError handlers must all returns a Promise of the image loading
+             * @this imgEl
+             * @type {onErrorHandler[]}
+             */
             const defaultOnErrorHandlers = (function getDefaultHandlers() {
                 function handler1(event = {}) {
                     const img = this;
@@ -590,26 +595,26 @@
                     return Promise.reject(event);
                 }
 
-                function __useProxy(imgEl, proxy) {
-                    if (imgEl.oldSrc) imgEl.src = imgEl.oldSrc; // go back to old src
-                    const anchor = imgEl.anchor ? imgEl.anchor : imgEl.closest('a');
-                    const href = anchor ? anchor.href : imgEl.src;
+                function __useProxy(img, proxy) {
+                    if (img.oldSrc) img.src = img.oldSrc; // go back to old src
+                    const anchor = img.anchor ? img.anchor : img.closest('a');
+                    const href = anchor ? anchor.href : img.src;
                     const proxyUrl = proxy.proxy(href);
 
                     debug && console.log('useProxy(', href, ')=', proxyUrl);
 
-                    imgEl.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
+                    img.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
 
 
                     //FIXME: remove these lines, it shouldn't need to be there
                     anchor.href = proxyUrl;
-                    // imgEl.src = proxyUrl;
+                    // img.src = proxyUrl;
 
-                    return loadPromise(imgEl, proxyUrl).then(e => {
-                        setBorderWithColor(imgEl, proxy.color);
-                        imgEl.setAttribute('proxy', proxy.name);
+                    return loadPromise(img, proxyUrl).then(e => {
+                        setBorderWithColor(img, proxy.color);
+                        img.setAttribute('proxy', proxy.name);
                     });
-                    // return self.replaceImgSrc(imgEl, proxyUrl);
+                    // return self.replaceImgSrc(img, proxyUrl);
                 }
 
                 /**
