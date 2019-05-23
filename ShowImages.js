@@ -254,11 +254,11 @@
                 }, opts.timeout);
                 // binding listeners
                 loaderImage.onload = function (e) {
-                    debug && console.log(
-                        'loaded image!' +
-                        '\nthis=', this,
-                        '\nevent=', e
-                    );
+                    // console.log(
+                    //     'loaded image!' +
+                    //     '\nthis=', this,
+                    //     '\nevent=', e
+                    // );
                     e.src = src; // passing the srcs here to be used later
 
                     // EXP: saving useless references
@@ -269,7 +269,7 @@
                     resolve(e);
                 };
                 loaderImage.onerror = function (e) {
-                    debug && console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
+                    // console.error('loadPromise():   image failed loading "' + loaderImage.src + '"');
                     reject(e);
                 };
                 loaderImage.src = src;
@@ -310,11 +310,11 @@
     }
 
     class ImageManager {
-        _images = [];
-        _failedSrcs = new Set();
-        _loadTimeout = 15000;
-        _loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
-        successfulUrls = [];
+        images = new Set();
+        failedSrcs = new Set();
+        loadTimeout = 15000;
+        loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
+        successfulUrls = new Set();
         parent = {};
         onErrorHandlers = [];
         onSuccess = function () {
@@ -354,17 +354,12 @@
                     img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL);
                 },
                 onErrorHandlers: [],
-                successfulUrls: new Set(),
             }, opts);
 
-            self.successfulUrls = new Set();
-            self.parent = opts.parent;
-            self.onErrorHandlers = opts.onErrorHandlers || [];
-            self.onSuccess = opts.onSuccess;
 
-            self._images = new Set();
-            self._loadTimeout = opts.loadTimeout;
-            self._loadMode = (opts.loadMode || 'p').toLowerCase();
+            self.images = new Set();
+            self.loadTimeout = opts.loadTimeout;
+            self.loadMode = (opts.loadMode || 'p').toLowerCase();
         }
 
 
@@ -426,7 +421,7 @@
              */
             imgEl.onerrorHandler = function (event) {
                 const img = this.img || this;
-                _im._failedSrcs.add(img.src);
+                _im.failedSrcs.add(img.src);
 
                 debug && console.warn('onerrorHandler():', img.src, img, event);
                 try {
@@ -455,15 +450,15 @@
 
             // setup the image object
             imgEl.__loaderImage = {};
-            _im._images.add(imgEl.__loaderImage);
+            _im.images.add(imgEl.__loaderImage);
 
 
             imgEl.setAttribute('loaded', 'loading');
 
 
             // init loading
-            var srcs = _im._loadMode === 's' ? [] : PProxy.proxyList(imgEl.src);
-            return loadPromise(imgEl, srcs, {setSrc: true, timeout: _im._loadTimeout, mode: _im._loadMode})
+            var srcs = _im.loadMode === 's' ? [] : PProxy.proxyList(imgEl.src);
+            return loadPromise(imgEl, srcs, {setSrc: true, timeout: _im.loadTimeout, mode: _im.loadMode})
                 .then((e) => {
                     const call = imgEl.onloadHandler.call(imgEl, e);
                     debug && console.log('onloadHandler.call', '\nimgEl:', imgEl, '\ne:', e, '\nreturn:', call);
@@ -715,7 +710,7 @@
                 img.getAttribute('fullres-src') ||
                 (anchor && !/^data:/.test(anchor.href) ? anchor.href : img.src);
 
-            if (!this._imagesFilter(img, anchor || {}) || this.imageManager._failedSrcs.has(newSrc)) {
+            if (!this._imagesFilter(img, anchor || {}) || this.imageManager.failedSrcs.has(newSrc)) {
                 // debug && console.debug('replaceImgSrc(src=' + img.src + ') did not pass image filter');
                 return Promise.reject({img: img, type: 'filter-error'})
                     .catch(function (e) {
