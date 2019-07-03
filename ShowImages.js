@@ -643,7 +643,6 @@
                 img.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
 
                 return loadPromise(img, fallbackUrl)
-                // return self.replaceImgSrc(img, fallbackUrl)
                     .then(e => {
                         img.src = fallbackUrl;
                         anchor.href = img.src;
@@ -653,48 +652,33 @@
             self.imageManager = new ImageManager(imOpts);
         }
 
-        static replaceThumbWithVid(vidThumb) {
-            const anchor = vidThumb.closest('[href], source');
-            const href = anchor.getAttribute('href');
-            if (/\.(mov|mp4|avi|webm|flv|wmv)($|\?)/i.test(href)) { // if the link is to a video
-                console.log('Replacing video thumbnail with original video:', href, vidThumb);
-                vidThumb.src = href;
-                const videoOptions = 'controls ' + (options.autoplayReplacedVids ? 'autoplay ' : '') + (options.loopReplacedVids ? 'loop ' : '');
-                const vidEl = createElement(`<video ${videoOptions} name="media" src="${href}"  type="video/webm" style="width:${vidThumb.clientWidth * 2}px;">`);
-                anchor.after(vidEl);
-                anchor.remove();
-            }
-        }
         /**
-         * searches for child thumbnails and replaces the ones found (calls `replaceImgSrc` and/or `replaceThumbWithVid`)
+         * searches for child thumbnails and replaces the ones found (calls `replaceImgSrc`)
          * replaces the src, `ImageManager.addHandlers(img, img.src);`
          *
          * @param {HTMLElement} node could be an image or any node containing an image
-         * @param mutationObserver
          */
-        displayOriginalImage(node, mutationObserver) {
+        displayOriginalImage(node) {
             var self = this;
+
+            var thumbnails = Array.from(node.querySelectorAll('a[href] img'));
+            var promises = thumbnails.map(
+                img => self.replaceImgSrc(img) // either image or vid (whatever works first)
+                .then((e) => {
+                    debug && console.log('promise callback!! (that was a vid or an img)', '\nimg:', img, '\nevent:', e);
+                })
+            );
+
             if (node.matches('a[href] img[src]')) {
                 /** @type {ImgEl} */
                 const img = node;
-                this.replaceImgSrc(img).then((e) => {
+                var promise = self.replaceImgSrc(img).then((e) => {
                     debug && console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
-                    if (/\.(gif)($|\?)/i.test(img.anchor.href)) {
-                        if (!img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL_GIF)) img.classList.add(self.ClassNames.DISPLAY_ORIGINAL_GIF);
-                    }
                 });
+                promises.shift(promise);
             }
-            for (const img of node.querySelectorAll('a[href] img[src]')) {
-                this.replaceImgSrc(img).then((e) => {
-                    debug && console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
-                    if (/\.(gif)($|\?)/i.test(img.anchor.href)) {
-                        if (!img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL_GIF)) img.classList.add(self.ClassNames.DISPLAY_ORIGINAL_GIF);
-                    }
-                });
-            }
-            for (const vidThumb of node.querySelectorAll('a[href] > img')) {
-                ShowImages.replaceThumbWithVid(vidThumb);
-            }
+
+            return promises;
         }
         /**
          * This is the main method that takes an image and replaces its src with its anchors href
@@ -730,14 +714,33 @@
 
             //TODO: the following line was here but was removed because it was causing issues, find another palce to put it
             // this.imageManager.failedSrcs.has(newSrc)
+            
             if (!this._imagesFilter(img, anchor || {})) {
-                // debug && console.debug('replaceImgSrc(src=' + img.src + ') did not pass image filter');
                 return Promise
                     .reject({img: img, type: 'filter-error'})
                     .catch(function (e) {
                         debug && console.warn('Caught (in promise):', e);
                         return e;
                     });
+            }
+            
+            // support for video thumbnails
+            // TODO: move this to loadPromise() and make it a more general function that loads all types of media
+            if (/\.(mov|mp4|avi|webm|flv|wmv)($|\?)/i.test(anchor.href)) { // if the link is to a video
+                debug && console.log('Replacing video thumbnail with original video:', anchor.href, img);
+                const videoOptions = 'controls ' + (options.autoplayReplacedVids ? 'autoplay ' : '') + (options.loopReplacedVids ? 'loop ' : '');
+                const video = createElement(`<video ${videoOptions} name="media" src="${anchor.href}"  type="video/webm" style="width:${img.clientWidth * 2}px;">`);
+                return new Promise((resolve, reject) => {
+                    video.addEventListener('loadeddata', resolve, false);
+                    video.onerror = reject;
+                }).then((r) => {
+                    debug && console.log('replaced vid thumbnail successfully:', video, r);
+                    anchor.after(video);
+                    anchor.remove();
+                }).catch(e => {
+                    console.warn('failed to replace thumbnail with vid:', img, e);
+                    video.remove();
+                });
             }
 
             debug && console.debug('replaceImgSrc()', img);
