@@ -1,8 +1,7 @@
 /**
  * @Author Faris Hijazi - https://www.github.com/farishijazi
- * https://github.com/FarisHijazi/SuperGoogle/projects/1
+ * https://github.com/FarisHijazi/ShowImages.js/projects/1
  */
-// TODO: - [ ] set a "proxy" attribute on success, identifying which proxy was used
 
 /**
  * @typedef {(Element)} ImgEl
@@ -16,7 +15,7 @@
  */
 
 /**
- * @typedef {Function} onErrorHandler
+ * @typedef {Function} ErrorHandler
  * @returns {Promise}
  */
 
@@ -90,6 +89,7 @@
             static proxy(url) {
                 return DDG.test(url) || /^(javascript)/i.test(url) ? url : (`https://proxy.duckduckgo.com/iu/?u=${encodeURIComponent(url)}&f=1`);
             }
+            /** @deprecated */
             static isDdgUrl() {
                 new Error('This function "isDdgUrl()" is deprecated, use "PProxy.DDG.test()" instead');
             }
@@ -178,11 +178,11 @@
          * @returns {*}
          */
         PProxy.proxyList = function (url) {
-            return PProxy.proxies.map(proxy => proxy.proxy(url));
+            if (url) return PProxy.proxies.map(proxy => proxy.proxy(url));
         };
         PProxy.proxyAll = function (url) {
             var o = {};
-            o.proxies.forEach(proxy => o[proxy.name] = proxy.proxy(url));
+            if (url) o.proxies.forEach(proxy => o[proxy.name] = proxy.proxy(url));
             return o;
         };
 
@@ -300,6 +300,7 @@
 
             if (opts.setSrc) {
                 e.img.src = e.src;
+                img.removeAttribute('srcset');
             }
             promises.forEach(function (promise) {
                 if (promise !== e.promise)
@@ -316,7 +317,7 @@
         failedSrcs = new Set();
         successfulUrls = new Set();
         parent = {};
-        onErrorHandlers = [];
+        errorHandlers = [];
         onSuccess = function () {
         };
 
@@ -326,7 +327,7 @@
          * @param {number=15000} opts.loadTimeout - timeout in ms for waiting for images to load
          * @param {string='serial'|'parallel'} opts.loadMode - 'serial' or 'parallel', can also use 's' or 'p'
          * @param {Function=} opts.onSuccess
-         * @param {Function[]=} opts.onErrorHandlers - will be passed the img element
+         * @param {Function[]=} opts.errorHandlers - will be passed the img element
          */
         constructor(opts) {
             var self = this;
@@ -353,7 +354,7 @@
 
                     img.classList.add(self.parent.ClassNames.DISPLAY_ORIGINAL);
                 },
-                onErrorHandlers: [],
+                errorHandlers: [],
                 laodTimeout: 15000,
                 loadMode: 'p',
             }, opts);
@@ -396,9 +397,9 @@
                     '\nImage:', _imgEl.src
                 );
 
-                const currentHandler = _im.onErrorHandlers[_imgEl.handlerIndex];
+                const currentHandler = _im.errorHandlers[_imgEl.handlerIndex];
 
-                if (!currentHandler || _imgEl.handlerIndex >= _im.onErrorHandlers.length) {
+                if (!currentHandler || _imgEl.handlerIndex >= _im.errorHandlers.length) {
                     return Promise.reject({img: _imgEl, type: 'return', reason: 'handler out of range'});
                 }
 
@@ -450,7 +451,7 @@
 
             // setup the image object
             imgEl.__loaderImage = {};
-            _im.images.add(imgEl.__loaderImage);
+            _im.images.add(imgEl);
 
 
             imgEl.setAttribute('loaded', 'loading');
@@ -460,6 +461,7 @@
             var srcs = _im.loadMode === 's' ? [] : PProxy.proxyList(imgEl.src);
             return loadPromise(imgEl, srcs, {setSrc: true, timeout: _im.loadTimeout, mode: _im.loadMode})
                 .then((e) => {
+                    //TODO: maybe this should return something more meaningful, and the 'event' should be returned too
                     const call = imgEl.onloadHandler.call(imgEl, e);
                     debug && console.log('onloadHandler.call', '\nimgEl:', imgEl, '\ne:', e, '\nreturn:', call);
                     return call;
@@ -505,7 +507,7 @@
             imgEl.oldSrc = !/^data:/.test(imgEl.src) ? imgEl.src : (imgEl.anchor.href && !/^data:/.test(imgEl.anchor.href) ? imgEl.anchor.href : imgEl.src);
             if (newSrc) {
                 imgEl.src = newSrc;
-                imgEl.anchor.href = newSrc; //EXPERIMENTAL:
+                // imgEl.anchor.href = newSrc; //EXPERIMENTAL:
             }
             imgEl.__isEnhanced = true;
 
@@ -522,7 +524,7 @@
      * @returns {ShowImages}
      */
     class ShowImages {
-        imageManager = new ImageManager();
+        imageManager = ImageManager.prototype;
         /**
          * @param {(HTMLImageElement|ImgEl)} img
          * @param {(HTMLAnchorElement|null)} anchor
@@ -531,10 +533,9 @@
         _imagesFilter = function (img, anchor) {
         };
         ClassNames = {
-            DISPLAY_ORIGINAL: 'show' + '-mainThumbnail',
-            DISPLAY_ORIGINAL_GIF: 'show' + '-gif',
-            FAILED: 'show' + '-failed',
-            FAILED_PROXY: 'show' + '-failed-proxy',
+            DISPLAY_ORIGINAL: 'SI_' + 'tb',
+            FAILED: 'SI_' + 'failed',
+            FAILED_PROXY: 'SI_' + 'failed-proxy',
         };
 
         /**
@@ -545,13 +546,13 @@
             var self = this;
             // TODO: define the options and the default values
             options = extend({
-                imagesFilter: (img, anchor) => (
-                    !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL) &&
-                    // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL) &&
-                    // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href) &&
-                    !img.classList.contains('irc_mut') && !img.closest('div.irc_rismo') && // TODO: move this to google script @google specific
-                    !/^data:/.test(anchor.href)
-                ),
+                imagesFilter: (img, anchor) => [
+                    // !img.classList.contains(self.ClassNames.DISPLAY_ORIGINAL),
+                    // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL),
+                    // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href),
+                    !/^data:/.test(anchor.href),
+                ].reduce((a, b) => a && b)
+                ,
             }, options);
             extend(self, options);
 
@@ -562,9 +563,9 @@
             /**
              * note: onError handlers must all returns a Promise of the image loading
              * @this imgEl
-             * @type {onErrorHandler[]}
+             * @type {ErrorHandler[]}
              */
-            const defaultOnErrorHandlers = (function getDefaultHandlers() {
+            const defaultErrorHandlers = (function getDefaultHandlers() {
                 function handler1(event = {}) {
                     const img = this;
                     event.img = img;
@@ -601,15 +602,14 @@
                     img.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
 
 
-                    //FIXME: remove these lines, it shouldn't need to be there
-                    anchor.href = proxyUrl;
-                    // img.src = proxyUrl;
-
-                    return loadPromise(img, proxyUrl).then(e => {
-                        setBorderWithColor(img, proxy.color);
-                        img.setAttribute('proxy', proxy.name);
-                    });
-                    // return self.replaceImgSrc(img, proxyUrl);
+                    return loadPromise(img, proxyUrl)
+                    // return self.replaceImgSrc(img, proxyUrl)
+                        .then(e => {
+                            img.src = proxyUrl;
+                            anchor.href = img.src;
+                            setBorderWithColor(img, proxy.color);
+                            img.setAttribute('proxy', proxy.name);
+                        });
                 }
 
                 /**
@@ -629,11 +629,11 @@
 
             const imOpts = extend({
                 parent: self,
-                onErrorHandlers: defaultOnErrorHandlers,
+                errorHandlers: defaultErrorHandlers,
             }, options);
 
             // convert urls passed to the errorHandlers to generic fallbackUrl handlers
-            imOpts.onErrorHandlers = imOpts.onErrorHandlers.map(h => typeof (h) !== 'string' ? h : function (e = {}) {
+            imOpts.errorHandlers = imOpts.errorHandlers.map(h => typeof (h) !== 'string' ? h : function createFallbackUrlHandler(e = {}) {
                 var fallbackUrl = h;
                 var img = this;
 
@@ -642,12 +642,12 @@
 
                 img.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
 
-                //FIXME: remove these lines, it shouldn't need to be there
-
-                anchor.href = fallbackUrl;
-                // img.src = fallbackUrl;
-
-                return loadPromise(img, fallbackUrl);
+                return loadPromise(img, fallbackUrl)
+                // return self.replaceImgSrc(img, fallbackUrl)
+                    .then(e => {
+                        img.src = fallbackUrl;
+                        anchor.href = img.src;
+                    });
             });
 
             self.imageManager = new ImageManager(imOpts);
@@ -709,6 +709,8 @@
          *      @ property event.img
          */
         replaceImgSrc(img, anchor = null) {
+            if (!img) return Promise.reject(new Error('image is null'));
+
             var newSrc;
 
             if (typeof anchor === 'string') {
@@ -726,9 +728,12 @@
                 img.getAttribute('fullres-src') ||
                 (anchor && !/^data:/.test(anchor.href) ? anchor.href : img.src);
 
-            if (!this._imagesFilter(img, anchor || {}) || this.imageManager.failedSrcs.has(newSrc)) {
+            //TODO: the following line was here but was removed because it was causing issues, find another palce to put it
+            // this.imageManager.failedSrcs.has(newSrc)
+            if (!this._imagesFilter(img, anchor || {})) {
                 // debug && console.debug('replaceImgSrc(src=' + img.src + ') did not pass image filter');
-                return Promise.reject({img: img, type: 'filter-error'})
+                return Promise
+                    .reject({img: img, type: 'filter-error'})
                     .catch(function (e) {
                         debug && console.warn('Caught (in promise):', e);
                         return e;
