@@ -3,6 +3,10 @@
  * https://github.com/FarisHijazi/ShowImages.js/projects/1
  */
 
+/*todos:
+- FIXME: why are images being replaced when they are failing??!!!!
+*/
+
 /**
  * @typedef {(Element)} ImgEl
  * @property {number} handlerIndex
@@ -104,7 +108,9 @@
 
         /**Returns a Pocket proxy url*/
         class Pocket extends ProxyInterface {
-            static BASE_URL = 'https://d3du9nefdtilsa.cloudfront.net/unsafe/fit-in/x/smart/filters%3Ano_upscale()/';
+            static get BASE_URL() {
+                return 'https://d3du9nefdtilsa.cloudfront.net/unsafe/fit-in/x/smart/filters%3Ano_upscale()/'
+            };
             static get color() {
                 return '#e082df';
             }
@@ -310,17 +316,17 @@
         });
     }
 
+    /**
+     * @member loadTimeout = 15000;
+     * @member loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
+     * @member images = new Set();
+     * @member failedSrcs = new Set();
+     * @member successfulUrls = new Set();
+     * @member parent = {};
+     * @member errorHandlers = [];
+     * @member onSuccess = function () {};
+     */
     class ImageManager {
-        loadTimeout = 15000;
-        loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
-        images = new Set();
-        failedSrcs = new Set();
-        successfulUrls = new Set();
-        parent = {};
-        errorHandlers = [];
-        onSuccess = function () {
-        };
-
         /**
          * @param {Object=} opts
          * @param {ShowImages=} opts.parent - usually the ShowImage instance
@@ -330,7 +336,16 @@
          * @param {Function[]=} opts.errorHandlers - will be passed the img element
          */
         constructor(opts) {
-            var self = this;
+            const self = this;
+            // init member defaults
+            self.loadTimeout = 15000;
+            self.loadMode = 'serial'; // 'serial' or 'parallel', can also use 's' or 'p'
+            self.images = new Set();
+            self.failedSrcs = new Set();
+            self.successfulUrls = new Set();
+            self.parent = {};
+            self.errorHandlers = [];
+            self.onSuccess = function () {};
 
             opts = extend({
                 parent: null,
@@ -524,26 +539,28 @@
      * @returns {ShowImages}
      */
     class ShowImages {
-        imageManager = ImageManager.prototype;
-        /**
-         * @param {(HTMLImageElement|ImgEl)} img
-         * @param {(HTMLAnchorElement|null)} anchor
-         * @private
-         */
-        _imagesFilter = function (img, anchor) {
-        };
-        ClassNames = {
-            DISPLAY_ORIGINAL: 'SI_' + 'tb',
-            FAILED: 'SI_' + 'failed',
-            FAILED_PROXY: 'SI_' + 'failed-proxy',
-        };
-
         /**
          * @param {Object} options
          * @param {Function(img)=} options.imagesFilter
          */
         constructor(options = {}) {
-            var self = this;
+            const self = this;
+            // init member defaults
+            self.imageManager = ImageManager.prototype;
+            /**
+             * @param {(HTMLImageElement|ImgEl)} img
+             * @param {(HTMLAnchorElement|null)} anchor
+             * @private
+             */
+            self._imagesFilter = function (img, anchor) {
+            };
+            self.ClassNames = {
+                DISPLAY_ORIGINAL: 'SI_' + 'tb',
+                FAILED: 'SI_' + 'failed',
+                FAILED_PROXY: 'SI_' + 'failed-proxy',
+            };
+
+
             // TODO: define the options and the default values
             options = extend({
                 imagesFilter: (img, anchor) => [
@@ -659,14 +676,14 @@
          * @param {HTMLElement} node could be an image or any node containing an image
          */
         displayOriginalImage(node) {
-            var self = this;
+            const self = this;
 
-            var thumbnails = Array.from(node.querySelectorAll('a[href] img'));
-            var promises = thumbnails.map(
+            const thumbnails = Array.from(node.querySelectorAll('a[href] img'));
+            const promises = thumbnails.map(
                 img => self.replaceImgSrc(img) // either image or vid (whatever works first)
-                .then((e) => {
-                    debug && console.log('promise callback!! (that was a vid or an img)', '\nimg:', img, '\nevent:', e);
-                })
+                    .then((e) => {
+                        debug && console.log('promise callback!! (that was a vid or an img)', '\nimg:', img, '\nevent:', e);
+                    })
             );
 
             if (node.matches('a[href] img[src]')) {
@@ -675,7 +692,7 @@
                 var promise = self.replaceImgSrc(img).then((e) => {
                     debug && console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
                 });
-                promises.shift(promise);
+                promises.unshift(promise);
             }
 
             return promises;
@@ -714,7 +731,7 @@
 
             //TODO: the following line was here but was removed because it was causing issues, find another palce to put it
             // this.imageManager.failedSrcs.has(newSrc)
-            
+
             if (!this._imagesFilter(img, anchor || {})) {
                 return Promise
                     .reject({img: img, type: 'filter-error'})
@@ -723,7 +740,7 @@
                         return e;
                     });
             }
-            
+
             // support for video thumbnails
             // TODO: move this to loadPromise() and make it a more general function that loads all types of media
             if (/\.(mov|mp4|avi|webm|flv|wmv)($|\?)/i.test(anchor.href)) { // if the link is to a video
