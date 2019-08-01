@@ -1,6 +1,8 @@
 /**
  * @Author Faris Hijazi - https://www.github.com/farishijazi
  * https://github.com/FarisHijazi/ShowImages.js/projects/1
+ * Note: this script (ShowImages) uses PProxy.js, so it must be imported along with it:
+ *      "@require https://github.com/FarisHijazi/ShowImages.js/raw/master/PProxy.js"
  */
 
 /*todos:
@@ -15,7 +17,8 @@
  * @property {string} oldSrc
  * @property {Function} onloadHandler
  * @property {Function} onerrorHandler
- * @property {bool} isReady
+ * @property {boolean} isReady
+ * @property {boolean} __isEnhanced
  */
 
 /**
@@ -60,144 +63,13 @@
     })();
 
 
-    const PProxy = (function () {
+    const pproxy_exists = typeof (PProxy) !== 'undefined';
+    console.assert(pproxy_exists);
+    if (!pproxy_exists) {
+        console.error('ShowImages.js: `PProxy` is not defined!, did you forget to import it? import it using' +
+            '\n"@require https://github.com/FarisHijazi/ShowImages.js/raw/master/PProxy.js"')
+    }
 
-        class ProxyInterface {
-            constructor() {
-                throw Error('Static class cannot be instantiated');
-            }
-            static get color() {
-                return '#00000';
-            }
-            // only to be used by children
-            static get name() {
-                return constructor.name;
-            }
-
-            static test(url) {
-            }
-            static proxy(url) {
-            }
-            static reverse(proxyUrl) {
-            }
-        }
-
-        /**Returns a DuckDuckGo proxy url (attempts to unblock the url)*/
-        class DDG extends ProxyInterface {
-            static get color() {
-                return '#FFA500';
-            }
-            static test(url) {
-                return /^https:\/\/proxy\.duckduckgo\.com/.test(url);
-            }
-            static proxy(url) {
-                return DDG.test(url) || /^(javascript)/i.test(url) ? url : (`https://proxy.duckduckgo.com/iu/?u=${encodeURIComponent(url)}&f=1`);
-            }
-            /** @deprecated */
-            static isDdgUrl() {
-                new Error('This function "isDdgUrl()" is deprecated, use "PProxy.DDG.test()" instead');
-            }
-            static reverse(url) {
-                // if (isZscalarUrl(url)) s = getOGZscalarUrl(url); // extra functionality:
-                if (!DDG.test(url)) {
-                    return url;
-                }
-                return new URL(location.href).searchParams.get('u');
-            }
-        }
-
-        /**Returns a Pocket proxy url*/
-        class Pocket extends ProxyInterface {
-            static get BASE_URL() {
-                return 'https://d3du9nefdtilsa.cloudfront.net/unsafe/fit-in/x/smart/filters%3Ano_upscale()/'
-            };
-            static get color() {
-                return '#e082df';
-            }
-            static test(url) {
-                return /(^https:\/\/pocket-image-cache\.com\/direct\?url=)|(cloudfront\.net\/unsafe\/fit-in\/x\/smart\/filters%3Ano_upscale\(\)\/)/.test(url);
-            }
-            static proxy(url) {
-                return Pocket.test(url) || /^(javascript)/i.test(url) ? url : 'https://pocket-image-cache.com/direct?url=' + url;
-            }
-            static reverse(url) {
-                if (!Pocket.test(url)) {
-                    return url;
-                }
-
-                if (url.indexOf(Pocket.BASE_URL) === 0) {
-                    return url.substring(Pocket.BASE_URL.length, -1);
-                }
-                if (url.indexOf('https://pocket-image-cache.com/direct') === 0) {
-                    return new URL(url).searchParams.get('url');
-                }
-                return url;
-            }
-        }
-
-        class FileStack extends ProxyInterface {
-            static get color() {
-                return '#acb300';
-            }
-            static test(url) {
-                return /https:\/\/process\.filestackapi\.com\/.+\//.test(url);
-            }
-            static proxy(url) {
-                return 'https://process.filestackapi.com/AhTgLagciQByzXpFGRI0Az/' + encodeURIComponent(url.trim());
-            }
-            static reverse(url) {
-            }
-        }
-
-        class SteemitImages extends ProxyInterface {
-            static get color() {
-                return '#0074B3';
-            }
-            static test(url) {
-                return /https:\/\/steemitimages\.com\/(p|0x0)\//.test(url);
-            }
-            static proxy(url) {
-                return /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(url) ? ('https://steemitimages.com/0x0/' + url.trim()) : url;
-            }
-            static reverse(url) {
-                if (!SteemitImages.test(url)) {
-                    return url;
-                }
-                console.warn('SteemitImages.reverse() is not fully supported, it\'ll only work sometimes');
-                return url.replace('https://steemitimages.com/0x0/', '');
-            }
-        }
-
-        //
-
-        var PProxy = {};
-        PProxy.proxies = [
-            FileStack,
-            SteemitImages,
-            DDG,
-            Pocket,
-        ];
-        PProxy.__defineGetter__('names', () => PProxy.proxies.map(p => p.name));
-        /**
-         * get a proxified url from each proxy
-         * @param url
-         * @returns {*}
-         */
-        PProxy.proxyList = function (url) {
-            if (url) return PProxy.proxies.map(proxy => proxy.proxy(url));
-        };
-        PProxy.proxyAll = function (url) {
-            var o = {};
-            if (url) o.proxies.forEach(proxy => o[proxy.name] = proxy.proxy(url));
-            return o;
-        };
-
-        for (const p of PProxy.proxies) {
-            PProxy[p.name] = p;
-        }
-
-        return PProxy;
-    })();
 
     /** * @type {number} TIMEOUT - trigger the `onerror` if the image takes too long to load */
     let TIMEOUT = 6000;
@@ -209,7 +81,7 @@
      * the loading will happen by using one or more other "fake" loader `Image` objects, and img will only be updated if any loader image loads successfully
      * @author Faris Hijazi, inspired by: gilly3 - https://stackoverflow.com/a/33019709/7771202
      *
-     * @param {HTMLImageElement|Node|imgEl} img - the image you want to load
+     * @param {HTMLImageElement|Node|ImgEl} img - the image you want to load
      * @param {(string|string[])=} srcs - img.src is used by default. srcs is the new url(s) to load for the img,
      *          each src in srcs will be loaded in parallel and the first one to load will return.
      *
@@ -345,7 +217,8 @@
             self.successfulUrls = new Set();
             self.parent = {};
             self.errorHandlers = [];
-            self.onSuccess = function () {};
+            self.onSuccess = function () {
+            };
 
             opts = extend({
                 parent: null,
@@ -386,7 +259,7 @@
          *  load = "error":  image failed to load
          * @param {(ImgEl|Element|HTMLImageElement)} imgEl
          * @param newSrc - the new url to be used
-         * @returns {Promise<({img: imgEl})>}
+         * @returns {Promise<({img: ImgEl})>}
          */
         initImageLoading(imgEl, newSrc) {
             var _im = this;
@@ -432,7 +305,7 @@
             }
 
             /**
-             * @this imgEl
+             * @this ImgEl
              * @param event
              */
             imgEl.onerrorHandler = function (event) {
@@ -449,7 +322,7 @@
             };
 
             /**
-             * @this imgEl
+             * @this ImgEl
              * @param event
              */
             imgEl.onloadHandler = function (event) {
@@ -579,7 +452,7 @@
             //TODO: allow for just passing fallback URLs as url handlers, and then they'll turn into `loadPromise(img, fallbackUrl)` functions
             /**
              * note: onError handlers must all returns a Promise of the image loading
-             * @this imgEl
+             * @this ImgEl
              * @type {ErrorHandler[]}
              */
             const defaultErrorHandlers = (function getDefaultHandlers() {
