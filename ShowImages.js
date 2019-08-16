@@ -1,7 +1,8 @@
 /**
  * @Author Faris Hijazi - https://www.github.com/farishijazi
  * https://github.com/FarisHijazi/ShowImages.js/projects/1
- * Note: this script (ShowImages) uses PProxy.js, so it must be imported along with it:
+ * 
+ * Note: this script (ShowImages) uses PProxy.js, so it must be imported BEFORE it:
  *      "@require https://github.com/FarisHijazi/ShowImages.js/raw/master/PProxy.js"
  */
 
@@ -59,16 +60,15 @@
         return function (url) {
             fakeLink.href = url;
             return fakeLink.href;
-        }
+        };
     })();
 
-
-    const pproxy_exists = typeof (PProxy) !== 'undefined';
-    console.assert(pproxy_exists);
-    if (!pproxy_exists) {
-        console.error('ShowImages.js: `PProxy` is not defined!, did you forget to import it? import it using' +
-            '\n"@require https://github.com/FarisHijazi/ShowImages.js/raw/master/PProxy.js"')
-    }
+    console.assert(
+    typeof (PProxy) !== 'undefined', // assert that PProxy was imported
+    'ShowImages.js: `PProxy` is not defined!, did you forget to import it?, ' +
+        'import PProxy.js by adding the following line BEFORE this script\'s import in the metadata block:' +
+        '\n"@require    https://github.com/FarisHijazi/ShowImages.js/raw/master/PProxy.js"'
+    );
 
 
     /** * @type {number} TIMEOUT - trigger the `onerror` if the image takes too long to load */
@@ -225,7 +225,7 @@
                 onSuccess: function (img) {
                     self.successfulUrls.add(img.src);
                     if (img.anchor && /\.(gif)($|\?)/i.test(img.anchor.href) || img.oldSrc && /\.(gif)($|\?)/i.test(img.oldSrc)) {
-                        debug && console.log('that\'s a gif!:', {
+                        if (debug) console.log('that\'s a gif!:', {
                             'img.anchor': img.anchor,
                             'img.src': img.src,
                             'img.oldSrc': img.oldSrc
@@ -280,7 +280,7 @@
                 // covers 3 cases: imgEl, loaderImage, event
                 var _imgEl = imgEl.img || imgEl;
 
-                debug && console.warn(
+                if (debug) console.warn(
                     'tryNextHandler()[' + _imgEl.handlerIndex + ']' +
                     '\nImage:', _imgEl.src
                 );
@@ -312,7 +312,7 @@
                 const img = this.img || this;
                 _im.failedSrcs.add(img.src);
 
-                debug && console.warn('onerrorHandler():', img.src, img, event);
+                if (debug) console.warn('onerrorHandler():', img.src, img, event);
                 try {
                     tryNextHandler(img).then((e) => imgEl.onloadHandler.call(img, e));
                 } catch (e) {
@@ -327,7 +327,7 @@
              */
             imgEl.onloadHandler = function (event) {
                 const img = this.img || this;
-                debug && console.log('image loaded :)', img.src, event);
+                if (debug) console.log('image loaded :)', img.src, event);
                 if (img.isReady) {
                     img.setAttribute('loaded', 'true');
                     img.style.display = 'block';
@@ -351,12 +351,12 @@
                 .then((e) => {
                     //TODO: maybe this should return something more meaningful, and the 'event' should be returned too
                     const call = imgEl.onloadHandler.call(imgEl, e);
-                    debug && console.log('onloadHandler.call', '\nimgEl:', imgEl, '\ne:', e, '\nreturn:', call);
+                    if (debug) console.log('onloadHandler.call', '\nimgEl:', imgEl, '\ne:', e, '\nreturn:', call);
                     return call;
                 })
                 .catch((e) => {
                     if (e.type !== 'error') {
-                        debug && console.log('promise.catch() NOT AN ERROR!');
+                        if (debug) console.log('promise.catch() NOT AN ERROR!');
                         return e;
                     }
 
@@ -441,8 +441,7 @@
                     // !img.closest('.' + this.ClassNames.DISPLAY_ORIGINAL),
                     // /\.(jpg|jpeg|tiff|png|gif)($|[?&])/i.test(anchor.href),
                     !/^data:/.test(anchor.href),
-                ].reduce((a, b) => a && b)
-                ,
+                ].reduce((a, b) => a && b),
             }, options);
             extend(self, options);
 
@@ -487,7 +486,7 @@
                     const href = anchor ? anchor.href : img.src;
                     const proxyUrl = proxy.proxy(href);
 
-                    debug && console.log('useProxy(', href, ')=', proxyUrl);
+                    if (debug) console.log('useProxy(', href, ')=', proxyUrl);
 
                     img.classList.remove(self.ClassNames.FAILED, self.ClassNames.FAILED_PROXY);
 
@@ -555,7 +554,7 @@
             const promises = thumbnails.map(
                 img => self.replaceImgSrc(img) // either image or vid (whatever works first)
                     .then((e) => {
-                        debug && console.log('promise callback!! (that was a vid or an img)', '\nimg:', img, '\nevent:', e);
+                        if (debug) console.log('promise callback!! (that was a vid or an img)', '\nimg:', img, '\nevent:', e);
                     })
             );
 
@@ -563,7 +562,7 @@
                 /** @type {ImgEl} */
                 const img = node;
                 var promise = self.replaceImgSrc(img).then((e) => {
-                    debug && console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
+                    if (debug) console.log('replaceImgSrc promise callback!!', '\nimg:', img, '\nevent:', e);
                 });
                 promises.unshift(promise);
             }
@@ -609,7 +608,7 @@
                 return Promise
                     .reject({img: img, type: 'filter-error'})
                     .catch(function (e) {
-                        debug && console.warn('Caught (in promise):', e);
+                        if (debug) console.warn('Caught (in promise):', e);
                         return e;
                     });
             }
@@ -617,14 +616,14 @@
             // support for video thumbnails
             // TODO: move this to loadPromise() and make it a more general function that loads all types of media
             if (/\.(mov|mp4|avi|webm|flv|wmv)($|\?)/i.test(anchor.href)) { // if the link is to a video
-                debug && console.log('Replacing video thumbnail with original video:', anchor.href, img);
+                if (debug) console.log('Replacing video thumbnail with original video:', anchor.href, img);
                 const videoOptions = 'controls ' + (options.autoplayReplacedVids ? 'autoplay ' : '') + (options.loopReplacedVids ? 'loop ' : '');
                 const video = createElement(`<video ${videoOptions} name="media" src="${anchor.href}"  type="video/webm" style="width:${img.clientWidth * 2}px;">`);
                 return new Promise((resolve, reject) => {
                     video.addEventListener('loadeddata', resolve, false);
                     video.onerror = reject;
                 }).then((r) => {
-                    debug && console.log('replaced vid thumbnail successfully:', video, r);
+                    if (debug) console.log('replaced vid thumbnail successfully:', video, r);
                     anchor.after(video);
                     anchor.remove();
                 }).catch(e => {
@@ -633,13 +632,13 @@
                 });
             }
 
-            debug && console.debug('replaceImgSrc()', img);
+            if (debug) console.debug('replaceImgSrc()', img);
 
             img.classList.add(this.ClassNames.DISPLAY_ORIGINAL);
 
             return this.imageManager.initImageLoading(img, newSrc)
                 .catch(function (e) {
-                    // debug && console.warn('Caught (in promise):', e)
+                    // if (debug) console.warn('Caught (in promise):', e)
                     return e;
                 })
                 ;
